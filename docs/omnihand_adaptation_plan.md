@@ -423,6 +423,120 @@ pip/mcp:  0.308 rad/s
 
 真机发送前不能只依赖 optimizer 的输出。
 
+### 9.2 dry-run 模式
+
+当前 `example/teleop_omnihand.py` 默认运行在 dry-run 模式。dry-run 的目的不是控制真机，而是在不连接 OmniHand 硬件、不 import OmniHand SDK 的情况下，验证完整 retargeting 数值链路：
+
+```text
+MediaPipe replay 输入
+  -> Retargeter
+  -> VectorOptimizer
+  -> OmniHandRobotWrapper FK/Jacobian
+  -> 10 维 q_active
+  -> OmniHandSafetyFilter
+  -> 终端打印 q_active / cost / FPS
+```
+
+默认输入数据是仓库中的回放文件：
+
+```text
+example/data/avp1.pkl
+```
+
+命令：
+
+```bash
+python3.10 example/teleop_omnihand.py --hand right --frames 30
+```
+
+等价地，也可以显式写出 dry-run：
+
+```bash
+python3.10 example/teleop_omnihand.py --hand right --frames 30 --dry-run
+```
+
+内部使用 `MediaPipeReplay(record_path="data/avp1.pkl")` 读取预录数据。每一帧输入格式是：
+
+```python
+{
+    "left_fingers": np.ndarray,   # shape = (21, 3)
+    "right_fingers": np.ndarray,  # shape = (21, 3)
+}
+```
+
+如果指定右手，则读取 `right_fingers`；如果指定左手，则读取 `left_fingers`。输出打印类似：
+
+```text
+frame=00030 fps= 28.7 cost=0.1234 q_active=[...10 values...]
+```
+
+其中 `q_active` 是可以发送给 OmniHand 的 10 维主动关节角，但 dry-run 下不会调用：
+
+```python
+hand.set_all_active_joint_angles(q_cmd.tolist())
+```
+
+如果要换输入文件：
+
+```bash
+python3.10 example/teleop_omnihand.py --hand right --play data/your_replay.pkl --frames 300
+```
+
+### 9.3 dry-run 下的 OmniHand 可视化
+
+当前 dry-run 已经能输出 OmniHand 的 `q_active`，但还不是图形可视化。现有 `wuji_retargeting.viz.TuningViewer` 基于 Wuji Hand 的 MuJoCo MJCF、Wuji link 命名和 20 维 qpos，不能直接拿来显示 OmniHand。
+
+OmniHand dry-run 可视化建议分两层做：
+
+```text
+第一层：FK skeleton 可视化
+  输入 MediaPipe 21 点
+  优化得到 q_active
+  OmniHandRobotWrapper.active_to_full(q_active)
+  Pinocchio FK 得到 palm / pip / dip / tip link positions
+  在 3D viewer 中画输入 skeleton 和 OmniHand FK skeleton
+
+第二层：完整 mesh 可视化
+  复制 OmniHand SDK mesh 资源
+  修正 URDF 中的 mesh 路径
+  用 Pinocchio MeshcatVisualizer / GepettoViewer 或转换 MJCF 后用 MuJoCo 显示
+```
+
+短期推荐先做 FK skeleton viewer，因为它不依赖真机，也不依赖 mesh 是否完整。它应该复用以下接口：
+
+```python
+robot = retargeter.optimizer.robot
+q_active, verbose = retargeter.retarget_verbose(fingers_pose)
+
+link_names = [
+    "R_palm",
+    "R_thumb_pip", "R_thumb_dip", "R_thumb_tip",
+    "R_index_pip", "R_index_dip", "R_index_tip",
+    "R_middle_pip", "R_middle_dip", "R_middle_tip",
+    "R_ring_pip", "R_ring_dip", "R_ring_tip",
+    "R_pinky_pip", "R_pinky_dip", "R_pinky_tip",
+]
+link_indices = [robot.get_link_index(name) for name in link_names]
+fk_points = robot.compute_fk_batch(q_active, link_indices).reshape(-1, 3)
+```
+
+可视化时画两组点和线：
+
+```text
+orange: MediaPipe input skeleton
+white:  OmniHand FK skeleton
+```
+
+如果要完整显示 OmniHand 外观，需要额外处理 mesh。当前仓库已放入 OmniHand URDF 供 FK/Jacobian 使用，但没有把 SDK 的 mesh 资源完整迁入，也没有把 URDF 中可能存在的绝对 mesh 路径改成包内相对路径。因此完整 mesh viewer 是下一步工作，不应该阻塞 retargeting 数值 dry-run。
+
+建议新增一个专门入口：
+
+```bash
+python3.10 example/visualize_omnihand_dryrun.py --hand right --play data/avp1.pkl
+```
+
+这个脚本只做离线可视化，不连接硬件。它可以优先实现 skeleton 模式，之后再扩展 `--mesh` 模式。
+
 ## 10. 验证计划
 
 ### 10.1 静态验证
