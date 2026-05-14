@@ -1,0 +1,40 @@
+robot:
+  type: "OmniHand"
+  hand_side: "left"
+  origin_link: "L_palm"
+
+optimizer:
+  type: "VectorOptimizer"
+  hand_side: "left"
+
+retarget:
+  huber_delta: 2.0
+  norm_delta: 0.04
+  lp_alpha: 0.2
+
+  key_vectors:
+    # thumb
+    - {origin: L_palm, task: L_thumb_pip, origin_kp: 0, task_kp: 2, scale: 1.0}
+    - {origin: L_palm, task: L_thumb_dip, origin_kp: 0, task_kp: 3, scale: 1.0}
+    - {origin: L_palm, task: L_thumb_tip, origin_kp: 0, task_kp: 4, scale: 1.0}
+    # index
+    - {origin: L_palm, task: L_index_pip, origin_kp: 0, task_kp: 6, scale: 1.0}
+    - {origin: L_palm, task: L_index_dip, origin_kp: 0, task_kp: 7, scale: 1.0}
+    - {origin: L_palm, task: L_index_tip, origin_kp: 0, task_kp: 8, scale: 1.0}
+    # middle
+    - {origin: L_palm, task: L_middle_pip, origin_kp: 0, task_kp: 10, scale: 1.0}
+    - {origin: L_palm, task: L_middle_dip, origin_kp: 0, task_kp: 11, scale: 1.0}
+    - {origin: L_palm, task: L_middle_tip, origin_kp: 0, task_kp: 12, scale: 1.0}
+    # ring
+    - {origin: L_palm, task: L_ring_pip, origin_kp: 0, task_kp: 14, scale: 1.0}
+    - {origin: L_palm, task: L_ring_dip, origin_kp: 0, task_kp: 15, scale: 1.0}
+    - {origin: L_palm, task: L_ring_tip, origin_kp: 0, task_kp: 16, scale: 1.0}
+    # pinky
+    - {origin: L_palm, task: L_pinky_pip, origin_kp: 0, task_kp: 18, scale: 1.0}
+    - {origin: L_palm, task: L_pinky_dip, origin_kp: 0, task_kp: 19, scale: 1.0}
+    - {origin: L_palm, task: L_pinky_tip, origin_kp: 0, task_kp: 20, scale: 1.0}
+
+  mediapipe_rotation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
