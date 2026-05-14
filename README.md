@@ -66,6 +66,9 @@ python teleop_sim.py --play data/avp1.pkl --hand left
 # Simulation - key-vector optimizer
 python teleop_sim.py --play data/avp1.pkl --hand right --config config/vector/vector_avp.yaml
 
+# OmniHand MuJoCo visualization
+mjpython teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right
+
 # Real hardware
 python teleop_real.py --play data/avp1.pkl --hand right
 ```

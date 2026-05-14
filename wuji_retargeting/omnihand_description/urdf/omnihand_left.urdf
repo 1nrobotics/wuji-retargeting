@@ -49,7 +49,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/l_palm.STL"/>
+        <mesh filename="../meshes/l_palm.STL"/>
       </geometry>
       <material name="silver"/>
     </visual>
@@ -83,7 +83,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/l_thumb_roll.STL"/>
+        <mesh filename="../meshes/l_thumb_roll.STL"/>
       </geometry>
       <material name="blue"/>
     </visual>
@@ -104,7 +104,7 @@
     <visual>
       <origin rpy="0 0 3.14" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/thumb_abad.STL"/>
+        <mesh filename="../meshes/thumb_abad.STL"/>
       </geometry>
       <material name="blue"/>
     </visual>
@@ -125,7 +125,7 @@
     <visual>
       <origin rpy="0 0 3.14" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/thumb_mcp.STL"/>
+        <mesh filename="../meshes/thumb_mcp.STL"/>
       </geometry>
       <material name="brown"/>
     </visual>
@@ -153,7 +153,7 @@
     <visual>
       <origin rpy="0 0 3.14" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/thumb_pip.STL"/>
+        <mesh filename="../meshes/thumb_pip.STL"/>
       </geometry>
       <material name="white"/>
     </visual>
@@ -181,7 +181,7 @@
     <visual>
       <origin rpy="0 0 3.14" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/thumb_dip.STL"/>
+        <mesh filename="../meshes/thumb_dip.STL"/>
       </geometry>
       <material name="white"/>
     </visual>
@@ -223,7 +223,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_abad.STL"/>
+        <mesh filename="../meshes/finger_abad.STL"/>
       </geometry>
       <material name="green"/>
     </visual>
@@ -246,7 +246,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_pip.STL"/>
+        <mesh filename="../meshes/finger_pip.STL"/>
       </geometry>
       <material name="brown"/>
     </visual>
@@ -274,7 +274,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_dip.STL"/>
+        <mesh filename="../meshes/finger_dip.STL"/>
       </geometry>
       <material name="orange"/>
     </visual>
@@ -313,7 +313,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_abad.STL"/>
+        <mesh filename="../meshes/finger_abad.STL"/>
       </geometry>
       <material name="green"/>
     </visual>
@@ -336,7 +336,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_pip.STL"/>
+        <mesh filename="../meshes/finger_pip.STL"/>
       </geometry>
       <material name="brown"/>
     </visual>
@@ -364,7 +364,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_dip.STL"/>
+        <mesh filename="../meshes/finger_dip.STL"/>
       </geometry>
       <material name="orange"/>
     </visual>
@@ -405,7 +405,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_abad.STL"/>
+        <mesh filename="../meshes/finger_abad.STL"/>
       </geometry>
       <material name="green"/>
     </visual>
@@ -428,7 +428,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_pip.STL"/>
+        <mesh filename="../meshes/finger_pip.STL"/>
       </geometry>
       <material name="brown"/>
     </visual>
@@ -456,7 +456,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_dip.STL"/>
+        <mesh filename="../meshes/finger_dip.STL"/>
       </geometry>
       <material name="orange"/>
     </visual>
@@ -497,7 +497,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_abad.STL"/>
+        <mesh filename="../meshes/finger_abad.STL"/>
       </geometry>
       <material name="green"/>
     </visual>
@@ -520,7 +520,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_pip.STL"/>
+        <mesh filename="../meshes/finger_pip.STL"/>
       </geometry>
       <material name="brown"/>
     </visual>
@@ -548,7 +548,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://omnihand_description/meshes/finger_dip.STL"/>
+        <mesh filename="../meshes/finger_dip.STL"/>
       </geometry>
       <material name="orange"/>
     </visual>

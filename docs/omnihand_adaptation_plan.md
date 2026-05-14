@@ -484,58 +484,70 @@ python3.10 example/teleop_omnihand.py --hand right --play data/your_replay.pkl -
 
 ### 9.3 dry-run 下的 OmniHand 可视化
 
-当前 dry-run 已经能输出 OmniHand 的 `q_active`，但还不是图形可视化。现有 `wuji_retargeting.viz.TuningViewer` 基于 Wuji Hand 的 MuJoCo MJCF、Wuji link 命名和 20 维 qpos，不能直接拿来显示 OmniHand。
+当前已新增 `example/teleop_omnihand_mujoco.py`，用于在 dry-run / replay / video / camera 输入下显示 OmniHand 的 MuJoCo 可视化。现有 `wuji_retargeting.viz.TuningViewer` 基于 Wuji Hand 的 MuJoCo MJCF、Wuji link 命名和 20 维 qpos，不能直接拿来显示 OmniHand，因此 OmniHand 使用独立入口。
 
-OmniHand dry-run 可视化建议分两层做：
+运行示例：
+
+```bash
+cd example
+mjpython teleop_omnihand_mujoco.py --hand right --play data/avp1.pkl
+```
+
+默认输入仍然是 `example/data/avp1.pkl`：
+
+```bash
+cd example
+mjpython teleop_omnihand_mujoco.py --hand right
+```
+
+内部流程：
 
 ```text
-第一层：FK skeleton 可视化
+MediaPipe 21 点
+  -> Retargeter / VectorOptimizer
+  -> q_active, shape = (10,)
+  -> OmniHandSafetyFilter
+  -> OmniHandRobotWrapper.active_to_full(q_active), shape = (16,)
+  -> 按 joint name 写入 MuJoCo data.qpos
+  -> mj_forward()
+  -> viewer.sync()
+```
+
+OmniHand 可视化分两层：
+
+```text
+第一层：URDF mesh 可视化，当前已实现
   输入 MediaPipe 21 点
   优化得到 q_active
   OmniHandRobotWrapper.active_to_full(q_active)
-  Pinocchio FK 得到 palm / pip / dip / tip link positions
-  在 3D viewer 中画输入 skeleton 和 OmniHand FK skeleton
+  MuJoCo 加载 OmniHand URDF 和 STL mesh
+  直接写 data.qpos 显示手部姿态
 
-第二层：完整 mesh 可视化
-  复制 OmniHand SDK mesh 资源
-  修正 URDF 中的 mesh 路径
-  用 Pinocchio MeshcatVisualizer / GepettoViewer 或转换 MJCF 后用 MuJoCo 显示
+第二层：三层 skeleton tuning viewer，后续可做
+  orange: MediaPipe input skeleton
+  cyan:   scaled target vectors
+  white:  OmniHand FK skeleton
 ```
 
-短期推荐先做 FK skeleton viewer，因为它不依赖真机，也不依赖 mesh 是否完整。它应该复用以下接口：
+当前实现使用 SDK URDF + STL mesh，而不是 MuJoCo actuator。原因是 OmniHand SDK 只提供 URDF，没有现成 MJCF actuator 定义；因此 viewer 只做可视化，不做动力学控制。写入逻辑复用以下接口：
 
 ```python
 robot = retargeter.optimizer.robot
 q_active, verbose = retargeter.retarget_verbose(fingers_pose)
-
-link_names = [
-    "R_palm",
-    "R_thumb_pip", "R_thumb_dip", "R_thumb_tip",
-    "R_index_pip", "R_index_dip", "R_index_tip",
-    "R_middle_pip", "R_middle_dip", "R_middle_tip",
-    "R_ring_pip", "R_ring_dip", "R_ring_tip",
-    "R_pinky_pip", "R_pinky_dip", "R_pinky_tip",
-]
-link_indices = [robot.get_link_index(name) for name in link_names]
-fk_points = robot.compute_fk_batch(q_active, link_indices).reshape(-1, 3)
+q_full = robot.active_to_full(q_active)
 ```
 
-可视化时画两组点和线：
-
-```text
-orange: MediaPipe input skeleton
-white:  OmniHand FK skeleton
-```
-
-如果要完整显示 OmniHand 外观，需要额外处理 mesh。当前仓库已放入 OmniHand URDF 供 FK/Jacobian 使用，但没有把 SDK 的 mesh 资源完整迁入，也没有把 URDF 中可能存在的绝对 mesh 路径改成包内相对路径。因此完整 mesh viewer 是下一步工作，不应该阻塞 retargeting 数值 dry-run。
-
-建议新增一个专门入口：
+支持输入：
 
 ```bash
-python3.10 example/visualize_omnihand_dryrun.py --hand right --play data/avp1.pkl
+mjpython teleop_omnihand_mujoco.py --hand right --play data/avp1.pkl
+mjpython teleop_omnihand_mujoco.py --hand right --video data/right.mp4 --show-video
+mjpython teleop_omnihand_mujoco.py --hand right --realsense
+mjpython teleop_omnihand_mujoco.py --hand right --zed
+mjpython teleop_omnihand_mujoco.py --hand right --input visionpro --ip <vision-pro-ip>
 ```
 
-这个脚本只做离线可视化，不连接硬件。它可以优先实现 skeleton 模式，之后再扩展 `--mesh` 模式。
+后续如果要做与 Wuji `TuningViewer` 同级的三层 skeleton 调参工具，可以在 `wuji_retargeting.viz` 中新增 OmniHand link mapping，把 `q_active -> FK points` 画成白色 robot skeleton，并支持 YAML hot-reload。
 
 ## 10. 验证计划
 

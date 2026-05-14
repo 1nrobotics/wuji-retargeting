@@ -35,5 +35,6 @@ packages = ["wuji_retargeting", "wuji_retargeting.viz", "wuji_retargeting.opt"]
 "wuji_retargeting" = [
     "urdf/*.urdf",
     "omnihand_description/urdf/*.urdf",
+    "omnihand_description/meshes/*.STL",
     "meshes/**/*.STL",
 ]
