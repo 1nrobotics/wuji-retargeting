@@ -46,6 +46,152 @@ MediaPipe/VisionPro/RealSense/ZED 输入
 6. FK/Jacobian 使用 OmniHand URDF + Pinocchio。
 7. 真机控制前必须加入关节限位、速度限制、丢帧保护和急停接口。
 
+### 2.1 当前实现的主要修改内容
+
+当前适配已经落地为一组最小侵入式修改，核心思路是保留原有 `Retargeter -> Optimizer -> RobotWrapper` 架构，只把机器人模型、优化变量维度和输出接口切换为 OmniHand。
+
+主要新增/修改文件：
+
+| 文件 | 修改内容 |
+| --- | --- |
+| `wuji_retargeting/robot_omnihand.py` | 新增 OmniHand 运动学 wrapper，负责 URDF 加载、10 active joints、16 full joints、active-to-passive 耦合、FK/Jacobian。 |
+| `wuji_retargeting/opt/base.py` | 在 `robot.type: OmniHand` 时加载 `OmniHandRobotWrapper`，并把优化维度从 Wuji 的 20 维切换为 OmniHand 的 10 维。 |
+| `example/config/omnihand/vector_omnihand_right.yaml` | 新增右手 VectorOptimizer 配置，使用 OmniHand link 名称和 MediaPipe 21 点 key vectors。 |
+| `example/config/omnihand/vector_omnihand_left.yaml` | 新增左手 VectorOptimizer 配置，使用 `L_` 前缀 link。 |
+| `example/teleop_omnihand.py` | 新增 OmniHand dry-run / hardware 入口，dry-run 下只打印 `q_active`，hardware 模式才调用 SDK。 |
+| `example/validate_omnihand_setup.py` | 新增硬件无关验证脚本，用于检查配置、依赖、FK/Jacobian 和单帧 retargeting。 |
+| `example/teleop_omnihand_mujoco.py` | 新增 OmniHand MuJoCo 可视化入口，加载 URDF + STL mesh，按 joint name 写入 `data.qpos`。 |
+| `wuji_retargeting/omnihand_description/` | 新增 OmniHand URDF 和 STL mesh，并把 mesh 路径改为仓库内相对路径。 |
+| `pyproject.toml` | 把 OmniHand URDF 和 STL mesh 加入 package data。 |
+
+算法层面的关键变化：
+
+1. **优化变量从 20 维 Wuji qpos 改为 10 维 OmniHand active joints。**
+
+   Wuji Hand 原路径默认优化 20 个关节角，而 OmniHand 真机控制接口只接受 10 个 active joint angles。适配后，NLopt SLSQP 的变量维度在 OmniHand 配置下变为：
+
+   ```python
+   q_active.shape == (10,)
+   ```
+
+   这 10 个值可以直接进入 SDK 的：
+
+   ```python
+   hand.set_all_active_joint_angles(q_active.tolist())
+   ```
+
+2. **Passive/mimic joints 不作为独立优化变量。**
+
+   OmniHand URDF 中包含 16 个 total joints，但其中 6 个 passive joints 由 SDK 的多项式耦合关系决定。实现中通过：
+
+   ```python
+   q_full = robot.active_to_full(q_active)
+   ```
+
+   把 10 维 active joints 展开为 16 维 full joints，再用于 FK/Jacobian 和 MuJoCo 可视化。这样可以避免优化器产生真机无法执行的 passive joint 组合。
+
+3. **Jacobian 使用 chain rule 从 full joint 空间映射回 active joint 空间。**
+
+   Pinocchio 对 URDF 模型计算出来的是模型关节空间 Jacobian。因为优化变量是 `q_active`，而 FK 实际使用的是由 `q_active` 派生出来的 `q_full`，所以梯度需要：
+
+   ```text
+   J_active = J_model @ d q_model / d q_active
+   ```
+
+   其中 `d q_model / d q_active` 包含 passive 多项式的导数。这样 NLopt 收到的梯度仍然是 10 维优化变量下的解析梯度。
+
+4. **第一版复用 `VectorOptimizer`，不迁移 Wuji 的完整 Adaptive loss。**
+
+   当前 OmniHand 配置使用 15 个 key vectors：
+
+   ```text
+   palm -> thumb/index/middle/ring/pinky 的 pip/dip/tip
+   ```
+
+   Loss 仍然是向量误差的 Huber loss 加上平滑正则项：
+
+   ```text
+   mean_i Huber(||robot_vec_i(q_active) - target_vec_i||)
+   + norm_delta * ||q_active - q_prev||^2
+   ```
+
+   这样做的好处是改动面小、调试直观；风险是还没有 Wuji AdaptiveOptimizerAnalytical 里的 pinch/segment 自适应逻辑，后续需要根据真机效果决定是否迁移。
+
+5. **MuJoCo 可视化只做姿态显示，不做动力学控制。**
+
+   OmniHand SDK 提供 URDF，但没有现成的 MJCF actuator 定义。当前 `teleop_omnihand_mujoco.py` 不是通过 actuator control 驱动模型，而是：
+
+   ```text
+   q_active -> active_to_full(q_active) -> data.qpos -> mj_forward()
+   ```
+
+   这足够用于检查 retargeting 姿态、关节方向、mesh 路径和左右手模型，但不代表真实动力学仿真。
+
+### 2.2 调试与验证入口
+
+当前调试路径分三层，从纯软件到真机逐步推进。
+
+1. **配置和依赖检查**
+
+   ```bash
+   python3.10 example/validate_omnihand_setup.py --skip-retarget
+   ```
+
+   预期能检查左右手 YAML、Python 版本、`nlopt`、`pinocchio`、`scipy` 等依赖。当前本机 `python3` 是 3.9.6，所以脚本会明确阻塞在 Python 版本检查。
+
+2. **FK/Jacobian/单帧 retargeting 验证**
+
+   ```bash
+   python3.10 example/validate_omnihand_setup.py --hand both
+   ```
+
+   这一步会实例化 `OmniHandRobotWrapper`，检查 `active_to_full()` 输出、tip link FK、Jacobian finite-difference 误差，并用 replay 数据跑一帧 retargeting。
+
+3. **数值 dry-run**
+
+   ```bash
+   python3.10 example/teleop_omnihand.py --hand right --frames 30
+   ```
+
+   这一步不连接硬件，只从 `example/data/avp1.pkl` 读取 MediaPipe replay，打印：
+
+   ```text
+   frame / fps / cost / q_active
+   ```
+
+   主要用于观察输出是否有限、是否在限位内、cost 是否异常跳变。
+
+4. **MuJoCo 可视化调试**
+
+   ```bash
+   cd example
+   mjpython teleop_omnihand_mujoco.py --hand right --play data/avp1.pkl
+   ```
+
+   这一步用于直观看手势方向、手指弯曲方向、左右手模型、mesh 路径是否正确。由于它直接写 `data.qpos`，如果姿态抖动或手指反向，优先检查：
+
+   ```text
+   active joint 顺序
+   left/right 符号方向
+   active_to_full 多项式
+   key_vectors 中 robot link 与 MediaPipe keypoint 的对应关系
+   mediapipe_rotation
+   ```
+
+5. **真机前安全调试**
+
+   真机前必须确认 `OmniHandSafetyFilter` 生效：
+
+   ```text
+   joint clipping
+   velocity limiting
+   low-pass filtering
+   NaN/Inf fallback
+   input dropout fallback
+   ```
+
+   然后才能用 `--hardware` 进入 SDK 控制路径。
+
 ## 3. OmniHand 关节定义
 
 ### 3.1 Active Joint 顺序
