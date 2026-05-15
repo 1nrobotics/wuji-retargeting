@@ -54,7 +54,7 @@ MediaPipe/VisionPro/RealSense/ZED 输入
 
 | 文件 | 修改内容 |
 | --- | --- |
-| `wuji_retargeting/robot_omnihand.py` | 新增 OmniHand 运动学 wrapper，负责 URDF 加载、10 active joints、16 full joints、active-to-passive 耦合、FK/Jacobian。 |
+| `wuji_retargeting/robot_omnihand.py` | 新增 OmniHand 运动学 wrapper，负责 URDF 加载、10 active joints、16 full joints、active-to-passive 耦合、FK/Jacobian，并显式维护 Pinocchio `q`/`v` index 映射。 |
 | `wuji_retargeting/opt/base.py` | 在 `robot.type: OmniHand` 时加载 `OmniHandRobotWrapper`，并把优化维度从 Wuji 的 20 维切换为 OmniHand 的 10 维。 |
 | `example/config/omnihand/vector_omnihand_right.yaml` | 新增右手 VectorOptimizer 配置，使用 OmniHand link 名称和 MediaPipe 21 点 key vectors。 |
 | `example/config/omnihand/vector_omnihand_left.yaml` | 新增左手 VectorOptimizer 配置，使用 `L_` 前缀 link。 |
@@ -98,7 +98,7 @@ MediaPipe/VisionPro/RealSense/ZED 输入
    J_active = J_model @ d q_model / d q_active
    ```
 
-   其中 `d q_model / d q_active` 包含 passive 多项式的导数。这样 NLopt 收到的梯度仍然是 10 维优化变量下的解析梯度。
+   其中 `d q_model / d q_active` 包含 passive 多项式的导数。实现时要注意 Pinocchio 的 Jacobian 位于 velocity space，所以 chain-rule 矩阵必须按 `idx_vs` 写入，而不是假设 `idx_qs == idx_vs`。这样 NLopt 收到的梯度仍然是 10 维优化变量下的解析梯度。
 
 4. **第一版复用 `VectorOptimizer`，不迁移 Wuji 的完整 Adaptive loss。**
 
@@ -126,6 +126,20 @@ MediaPipe/VisionPro/RealSense/ZED 输入
    ```
 
    这足够用于检查 retargeting 姿态、关节方向、mesh 路径和左右手模型，但不代表真实动力学仿真。
+
+6. **滤波和限速集中在 `OmniHandSafetyFilter`。**
+
+   OmniHand 入口调用 `retarget_verbose(..., apply_filter=False)`，避免 `Retargeter` 低通滤波和 `OmniHandSafetyFilter` 重复平滑。最终发送/显示前只经过一条安全链路：
+
+   ```text
+   q_raw
+     -> joint clipping
+     -> velocity limiting
+     -> low-pass smoothing
+     -> q_cmd
+   ```
+
+   hardware 模式启动时会优先读取 `get_all_active_joint_angles()` 作为 `OmniHandSafetyFilter` 初始状态；读取失败时才回退到关节范围中点。这样可以降低第一帧命令跳变风险。
 
 ### 2.2 调试与验证入口
 
@@ -188,6 +202,7 @@ MediaPipe/VisionPro/RealSense/ZED 输入
    low-pass filtering
    NaN/Inf fallback
    input dropout fallback
+   hardware startup from current active joints
    ```
 
    然后才能用 `--hardware` 进入 SDK 控制路径。
@@ -346,9 +361,10 @@ OmniHandRobotWrapper(
 
 1. 使用 Pinocchio 加载 OmniHand URDF。
 2. 建立 active joint name -> Pinocchio q index 映射。
-3. 建立 full joint name -> Pinocchio q index 映射。
+3. 建立 full joint name -> Pinocchio q index 和 v index 映射。
 4. 构造 10 维 active joint limits。
-5. 保存 active-to-full 多项式耦合。
+5. 校验 10 个 active joints 都存在于 Pinocchio 模型。
+6. 保存 active-to-full 多项式耦合。
 
 ### 6.2 active_to_full
 
@@ -397,10 +413,12 @@ J_active = J_full @ d q_full / d q_active
 其中：
 
 ```python
-J_full.shape = (num_links, 3, 16)
-dqfull_dqactive.shape = (16, 10)
+J_model.shape = (num_links, 3, model.nv)
+dqmodel_dqactive.shape = (model.nv, 10)
 J_active.shape = (num_links, 3, 10)
 ```
+
+注意：`dqmodel_dqactive` 必须按 Pinocchio velocity index `idx_vs` 填充。虽然当前 OmniHand URDF 只有 single-DoF revolute joints，`nq == nv`，但实现上不应依赖 `idx_qs == idx_vs` 的隐含假设。
 
 多项式求导：
 
@@ -539,9 +557,9 @@ retargeter = Retargeter.from_yaml(config_path, hand_side="right")
 while True:
     fingers_data = input_device.get_fingers_data()
     keypoints = fingers_data["right_fingers"]
-    q_active = retargeter.retarget(keypoints)
-    q_active = safety_filter(q_active)
-    hand.set_all_active_joint_angles(q_active.tolist())
+    q_raw, verbose = retargeter.retarget_verbose(keypoints, apply_filter=False)
+    q_cmd = safety_filter.next(q_raw)
+    hand.set_all_active_joint_angles(q_cmd.tolist())
 ```
 
 ### 9.1 SafetyFilter
@@ -550,7 +568,7 @@ while True:
 
 ```python
 class OmniHandSafetyFilter:
-    def __init__(self, joint_limits, velocity_limits, max_dt=0.05):
+    def __init__(self, joint_limits, velocity_limits, alpha=0.25, initial_qpos=None):
         ...
 
     def next(self, q_target, timestamp=None):
@@ -569,6 +587,15 @@ pip/mcp:  0.308 rad/s
 
 真机发送前不能只依赖 optimizer 的输出。
 
+当前实现还支持用真机当前角度初始化：
+
+```python
+initial_qpos = hand.get_all_active_joint_angles()
+safety = OmniHandSafetyFilter(joint_limits, initial_qpos=initial_qpos)
+```
+
+如果读取当前角度失败，则回退到关节范围中点，并通过速度限制逐步过渡。
+
 ### 9.2 dry-run 模式
 
 当前 `example/teleop_omnihand.py` 默认运行在 dry-run 模式。dry-run 的目的不是控制真机，而是在不连接 OmniHand 硬件、不 import OmniHand SDK 的情况下，验证完整 retargeting 数值链路：
@@ -578,9 +605,10 @@ MediaPipe replay 输入
   -> Retargeter
   -> VectorOptimizer
   -> OmniHandRobotWrapper FK/Jacobian
-  -> 10 维 q_active
+  -> 10 维 q_raw
   -> OmniHandSafetyFilter
-  -> 终端打印 q_active / cost / FPS
+  -> 10 维 q_cmd
+  -> 终端打印 q_cmd / cost / FPS
 ```
 
 默认输入数据是仓库中的回放文件：
@@ -616,7 +644,7 @@ python3.10 example/teleop_omnihand.py --hand right --frames 30 --dry-run
 frame=00030 fps= 28.7 cost=0.1234 q_active=[...10 values...]
 ```
 
-其中 `q_active` 是可以发送给 OmniHand 的 10 维主动关节角，但 dry-run 下不会调用：
+其中打印的 `q_active` 实际是 safety filter 之后的 `q_cmd`，是可以发送给 OmniHand 的 10 维主动关节角，但 dry-run 下不会调用：
 
 ```python
 hand.set_all_active_joint_angles(q_cmd.tolist())
@@ -651,9 +679,10 @@ mjpython teleop_omnihand_mujoco.py --hand right
 ```text
 MediaPipe 21 点
   -> Retargeter / VectorOptimizer
-  -> q_active, shape = (10,)
+  -> q_raw, shape = (10,)
   -> OmniHandSafetyFilter
-  -> OmniHandRobotWrapper.active_to_full(q_active), shape = (16,)
+  -> q_cmd, shape = (10,)
+  -> OmniHandRobotWrapper.active_to_full(q_cmd), shape = (16,)
   -> 按 joint name 写入 MuJoCo data.qpos
   -> mj_forward()
   -> viewer.sync()
@@ -679,8 +708,9 @@ OmniHand 可视化分两层：
 
 ```python
 robot = retargeter.optimizer.robot
-q_active, verbose = retargeter.retarget_verbose(fingers_pose)
-q_full = robot.active_to_full(q_active)
+q_raw, verbose = retargeter.retarget_verbose(fingers_pose, apply_filter=False)
+q_cmd = safety.next(q_raw)
+q_full = robot.active_to_full(q_cmd)
 ```
 
 支持输入：

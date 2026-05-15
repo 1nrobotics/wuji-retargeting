@@ -35,12 +35,37 @@ class OmniHandSafetyFilter:
         joint_limits: np.ndarray,
         velocity_limits: np.ndarray = OMNIHAND_VELOCITY_LIMITS,
         alpha: float = 0.25,
+        initial_qpos: np.ndarray | None = None,
     ):
         self.joint_limits = np.asarray(joint_limits, dtype=np.float64)
         self.velocity_limits = np.asarray(velocity_limits, dtype=np.float64)
         self.alpha = float(alpha)
+        if self.joint_limits.shape != (10, 2):
+            raise ValueError(f"Expected joint_limits shape (10, 2), got {self.joint_limits.shape}")
+        if self.velocity_limits.shape != (10,):
+            raise ValueError(f"Expected velocity_limits shape (10,), got {self.velocity_limits.shape}")
+        if not (0.0 < self.alpha <= 1.0):
+            raise ValueError(f"alpha must be in (0, 1], got {self.alpha}")
+
         self.q_prev = None
         self.t_prev = None
+        if initial_qpos is not None:
+            self.reset(initial_qpos)
+
+    def reset(self, initial_qpos: np.ndarray | None = None, timestamp: float | None = None):
+        if initial_qpos is None:
+            self.q_prev = None
+            self.t_prev = None
+            return
+
+        initial_qpos = np.asarray(initial_qpos, dtype=np.float64)
+        if initial_qpos.shape != (10,):
+            raise ValueError(f"Expected initial_qpos shape (10,), got {initial_qpos.shape}")
+        if not np.all(np.isfinite(initial_qpos)):
+            initial_qpos = self.joint_limits.mean(axis=1)
+
+        self.q_prev = np.clip(initial_qpos, self.joint_limits[:, 0], self.joint_limits[:, 1])
+        self.t_prev = time.time() if timestamp is None else float(timestamp)
 
     def next(self, q_target: np.ndarray, timestamp: float | None = None) -> np.ndarray:
         q_target = np.asarray(q_target, dtype=np.float64)
@@ -88,6 +113,22 @@ def _create_omnihand(hand_side: str, device_id: int):
     return AgibotHandO10.create_hand(device_id=device_id, hand_type=hand_type)
 
 
+def _read_initial_active_qpos(hand, fallback: np.ndarray) -> np.ndarray:
+    if hand is None:
+        return fallback.copy()
+
+    try:
+        qpos = np.asarray(hand.get_all_active_joint_angles(), dtype=np.float64)
+    except Exception as exc:
+        print(f"[warn] Could not read OmniHand current active joints: {exc}. Using mid-range start.")
+        return fallback.copy()
+
+    if qpos.shape != (10,) or not np.all(np.isfinite(qpos)):
+        print("[warn] Invalid OmniHand current active joints. Using mid-range start.")
+        return fallback.copy()
+    return qpos
+
+
 def _create_retargeter(config_file: Path, hand_side: str):
     try:
         from wuji_retargeting import Retargeter
@@ -120,7 +161,7 @@ def run_omnihand(
         raise FileNotFoundError(f"Config file not found: {config_file}")
 
     retargeter = _create_retargeter(config_file, hand_side)
-    safety = OmniHandSafetyFilter(retargeter.optimizer.robot.joint_limits)
+    joint_limits = retargeter.optimizer.robot.joint_limits
 
     input_device = MediaPipeReplay(
         record_path=replay_path,
@@ -129,6 +170,8 @@ def run_omnihand(
     )
 
     hand = None if dry_run else _create_omnihand(hand_side, device_id)
+    initial_qpos = _read_initial_active_qpos(hand, joint_limits.mean(axis=1))
+    safety = OmniHandSafetyFilter(joint_limits, initial_qpos=initial_qpos)
 
     frame_count = 0
     start_time = time.time()
@@ -143,14 +186,14 @@ def run_omnihand(
                 time.sleep(0.01)
                 continue
 
-            q_raw, verbose = retargeter.retarget_verbose(fingers_pose)
+            q_raw, verbose = retargeter.retarget_verbose(fingers_pose, apply_filter=False)
             q_cmd = safety.next(q_raw)
 
             if hand is not None:
                 hand.set_all_active_joint_angles(q_cmd.tolist())
 
             frame_count += 1
-            if frame_count == 1 or frame_count % print_every == 0:
+            if print_every > 0 and (frame_count == 1 or frame_count % print_every == 0):
                 elapsed = max(time.time() - start_time, 1e-6)
                 fps = frame_count / elapsed
                 print(

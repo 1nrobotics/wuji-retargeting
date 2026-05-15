@@ -47,6 +47,11 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+def _require(condition: bool, message: str):
+    if not condition:
+        raise AssertionError(message)
+
+
 def _validate_config(path: Path):
     config = _load_yaml(path)
     robot = config.get("robot", {})
@@ -54,13 +59,16 @@ def _validate_config(path: Path):
     retarget = config.get("retarget", {})
     key_vectors = retarget.get("key_vectors", [])
 
-    assert robot.get("type") == "OmniHand", f"{path}: robot.type must be OmniHand"
-    assert optimizer.get("type") == "VectorOptimizer", f"{path}: optimizer.type must be VectorOptimizer"
-    assert len(key_vectors) == 15, f"{path}: expected 15 key vectors, got {len(key_vectors)}"
+    _require(robot.get("type") == "OmniHand", f"{path}: robot.type must be OmniHand")
+    _require(
+        optimizer.get("type") == "VectorOptimizer",
+        f"{path}: optimizer.type must be VectorOptimizer",
+    )
+    _require(len(key_vectors) == 15, f"{path}: expected 15 key vectors, got {len(key_vectors)}")
 
     for i, kv in enumerate(key_vectors):
         for key in ("origin", "task", "origin_kp", "task_kp", "scale"):
-            assert key in kv, f"{path}: key_vectors[{i}] missing {key}"
+            _require(key in kv, f"{path}: key_vectors[{i}] missing {key}")
 
     print(f"[ok] config {path} ({len(key_vectors)} key vectors)")
 
@@ -85,9 +93,9 @@ def _validate_robot(hand_side: str):
     q_mid = limits.mean(axis=1)
     q_full = robot.active_to_full(q_mid)
 
-    assert q_mid.shape == (10,)
-    assert q_full.shape == (16,)
-    assert np.all(np.isfinite(q_full))
+    _require(q_mid.shape == (10,), f"{hand_side}: expected q_mid shape (10,), got {q_mid.shape}")
+    _require(q_full.shape == (16,), f"{hand_side}: expected q_full shape (16,), got {q_full.shape}")
+    _require(np.all(np.isfinite(q_full)), f"{hand_side}: q_full contains non-finite values")
 
     prefix = "R" if hand_side == "right" else "L"
     tip_links = [
@@ -101,10 +109,16 @@ def _validate_robot(hand_side: str):
     fk = robot.compute_fk_batch(q_mid, link_indices)
     jac = robot.compute_all_jacobians_batch(q_mid, link_indices)
 
-    assert fk.shape == (len(link_indices) * 3,)
-    assert jac.shape == (len(link_indices), 3, 10)
-    assert np.all(np.isfinite(fk))
-    assert np.all(np.isfinite(jac))
+    _require(
+        fk.shape == (len(link_indices) * 3,),
+        f"{hand_side}: expected FK shape {(len(link_indices) * 3,)}, got {fk.shape}",
+    )
+    _require(
+        jac.shape == (len(link_indices), 3, 10),
+        f"{hand_side}: expected Jacobian shape {(len(link_indices), 3, 10)}, got {jac.shape}",
+    )
+    _require(np.all(np.isfinite(fk)), f"{hand_side}: FK contains non-finite values")
+    _require(np.all(np.isfinite(jac)), f"{hand_side}: Jacobian contains non-finite values")
 
     _, jac_fd = _finite_difference_jacobian(robot, q_mid, link_indices)
     max_err = float(np.max(np.abs(jac - jac_fd)))
@@ -130,8 +144,8 @@ def _validate_one_retarget_frame(hand_side: str, config_path: Path, replay_path:
     retargeter = Retargeter.from_yaml(str(config_path), hand_side)
     qpos, verbose = retargeter.retarget_verbose(frame[hand_key], apply_filter=False)
 
-    assert qpos.shape == (10,)
-    assert np.all(np.isfinite(qpos))
+    _require(qpos.shape == (10,), f"{hand_side}: expected qpos shape (10,), got {qpos.shape}")
+    _require(np.all(np.isfinite(qpos)), f"{hand_side}: qpos contains non-finite values")
     print(
         f"[ok] one-frame retarget {hand_side}: "
         f"q_shape={qpos.shape} cost={verbose['cost']:.4f}"

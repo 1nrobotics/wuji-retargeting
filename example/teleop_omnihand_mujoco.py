@@ -236,11 +236,10 @@ def run_omnihand_mujoco(
     model = mujoco.MjModel.from_xml_path(robot.urdf_path)
     data = mujoco.MjData(model)
     joint_driver = OmniHandMujocoJointDriver(mujoco, model, data, robot)
-    safety = OmniHandSafetyFilter(robot.joint_limits)
-
     q_mid = robot.joint_limits.mean(axis=1)
     joint_driver.set_active_q(q_mid)
     mujoco.mj_forward(model, data)
+    safety = OmniHandSafetyFilter(robot.joint_limits, initial_qpos=q_mid)
 
     input_device = _create_input_device(
         input_device_type=input_device_type,
@@ -277,7 +276,7 @@ def run_omnihand_mujoco(
                 time.sleep(0.01)
                 continue
 
-            q_raw, verbose = retargeter.retarget_verbose(fingers_pose)
+            q_raw, verbose = retargeter.retarget_verbose(fingers_pose, apply_filter=False)
             q_cmd = safety.next(q_raw)
             joint_driver.set_active_q(q_cmd)
 

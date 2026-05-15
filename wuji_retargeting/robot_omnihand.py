@@ -131,7 +131,8 @@ class OmniHandRobotWrapper:
 
         self.active_joint_names = self._side_names(self.RIGHT_ACTIVE_JOINT_NAMES)
         self.full_joint_names = self._side_names(self.RIGHT_FULL_JOINT_NAMES)
-        self._joint_q_index = self._build_joint_q_index()
+        self._joint_q_index, self._joint_v_index = self._build_joint_indices()
+        self._validate_active_joints()
         self._last_model_q = np.zeros(self.model.nq, dtype=np.float64)
 
         self._tip_aliases = self._build_link_aliases()
@@ -158,17 +159,31 @@ class OmniHandRobotWrapper:
             return right_names.copy()
         return [name.replace("R_", "L_", 1) for name in right_names]
 
-    def _build_joint_q_index(self) -> Dict[str, int]:
+    def _build_joint_indices(self) -> tuple[Dict[str, int], Dict[str, int]]:
         joint_q_index: Dict[str, int] = {}
+        joint_v_index: Dict[str, int] = {}
         for joint_id, name in enumerate(self.model.names):
             if joint_id == 0 or self.model.nqs[joint_id] == 0:
                 continue
-            if self.model.nqs[joint_id] != 1:
+            if self.model.nqs[joint_id] != 1 or self.model.nvs[joint_id] != 1:
                 raise NotImplementedError(
                     f"Only single-DoF OmniHand joints are supported, got {name}"
                 )
             joint_q_index[name] = int(self.model.idx_qs[joint_id])
-        return joint_q_index
+            joint_v_index[name] = int(self.model.idx_vs[joint_id])
+        return joint_q_index, joint_v_index
+
+    def _validate_active_joints(self):
+        missing = [
+            name for name in self.active_joint_names
+            if name not in self._joint_q_index or name not in self._joint_v_index
+        ]
+        if missing:
+            available = sorted(self._joint_q_index)
+            raise RuntimeError(
+                f"OmniHand active joints missing from Pinocchio model: {missing}. "
+                f"Available joints: {available}"
+            )
 
     def _build_link_aliases(self) -> Dict[str, str]:
         names = {
@@ -260,9 +275,9 @@ class OmniHandRobotWrapper:
         mat = np.zeros((self.model.nv, self.num_opt_joints), dtype=np.float64)
 
         def set_entry(joint_name: str, active_idx: int, value: float):
-            q_idx = self._joint_q_index.get(joint_name)
-            if q_idx is not None:
-                mat[q_idx, active_idx] = value
+            v_idx = self._joint_v_index.get(joint_name)
+            if v_idx is not None:
+                mat[v_idx, active_idx] = value
 
         thumb_mcp_to_dip = self.RIGHT_THUMB_MCP_TO_DIP_POLY.copy()
         if self.hand_side == "left":
