@@ -217,6 +217,7 @@ def run_omnihand_mujoco(
     show_video: bool,
     max_frames: int,
     print_every: int,
+    safe_motion: bool,
 ):
     hand_side = hand_side.lower()
     if hand_side not in {"left", "right"}:
@@ -239,7 +240,7 @@ def run_omnihand_mujoco(
     q_mid = robot.joint_limits.mean(axis=1)
     joint_driver.set_active_q(q_mid)
     mujoco.mj_forward(model, data)
-    safety = OmniHandSafetyFilter(robot.joint_limits, initial_qpos=q_mid)
+    safety = OmniHandSafetyFilter(robot.joint_limits, initial_qpos=q_mid) if safe_motion else None
 
     input_device = _create_input_device(
         input_device_type=input_device_type,
@@ -264,6 +265,7 @@ def run_omnihand_mujoco(
         print(f"  URDF: {robot.urdf_path}")
         print(f"  Hand: {hand_side}")
         print(f"  Input: {input_device_type}")
+        print(f"  Motion: {'hardware-like safety filter' if safe_motion else 'direct retargeted pose'}")
         print("=" * 50)
 
         while viewer.is_running() and (max_frames <= 0 or frame_count < max_frames):
@@ -277,7 +279,7 @@ def run_omnihand_mujoco(
                 continue
 
             q_raw, verbose = retargeter.retarget_verbose(fingers_pose, apply_filter=False)
-            q_cmd = safety.next(q_raw)
+            q_cmd = safety.next(q_raw) if safety is not None else q_raw
             joint_driver.set_active_q(q_cmd)
 
             mujoco.mj_forward(model, data)
@@ -331,6 +333,11 @@ Examples:
     parser.add_argument("--no-loop", action="store_true")
     parser.add_argument("--frames", type=int, default=0, help="0 means run until viewer closes")
     parser.add_argument("--print-every", type=int, default=30)
+    parser.add_argument(
+        "--safe-motion",
+        action="store_true",
+        help="Apply OmniHand hardware-like velocity limiting and smoothing in the viewer.",
+    )
     args = parser.parse_args()
 
     version_error = _python_version_error()
@@ -377,6 +384,7 @@ Examples:
             show_video=args.show_video,
             max_frames=args.frames,
             print_every=args.print_every,
+            safe_motion=args.safe_motion,
         )
     except (FileNotFoundError, ImportError, RuntimeError, TypeError, ValueError) as exc:
         print(f"[blocked] {exc}", file=sys.stderr)

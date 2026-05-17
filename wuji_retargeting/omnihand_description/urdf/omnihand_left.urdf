@@ -4,6 +4,9 @@
 <!-- |    EDITING THIS FILE BY HAND IS NOT RECOMMENDED                                 | -->
 <!-- =================================================================================== -->
 <robot name="omnihand">
+  <mujoco>
+    <compiler meshdir="../meshes" balanceinertia="true" discardvisual="false" autolimits="true"/>
+  </mujoco>
   <!-- joint position value -->
   <material name="black">
     <color rgba="0.0 0.0 0.0 1.0"/>
