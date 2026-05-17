@@ -46,13 +46,72 @@ https://github.com/user-attachments/assets/72116289-7a33-4a6b-83ca-fb4d9aaece0d
 
 ## Quick Start
 
+Prerequisites:
+
+- Python 3.10 or newer
+- Git LFS, for the sample replay data in `example/data/avp1.pkl`
+
 ### Installation
 
 ```bash
 git clone --recurse-submodules https://github.com/wuji-technology/wuji-retargeting.git
 cd wuji-retargeting
+git lfs install
+git lfs pull
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+```
+
+### Submodules and Example Data
+
+This repository uses Git submodules for hand model assets and Git LFS for the replay data:
+
+- Submodules provide the MuJoCo simulation helper and hand description files used by the examples.
+- Git LFS stores `example/data/avp1.pkl`, the sample replay used by the quick-start commands.
+
+For a fresh clone, prefer:
+
+```bash
+git clone --recurse-submodules https://github.com/wuji-technology/wuji-retargeting.git
+cd wuji-retargeting
+git lfs install
+git lfs pull
+```
+
+For an existing checkout, initialize or refresh the same assets with:
+
+```bash
+git submodule update --init --recursive
+git lfs install
+git lfs pull
+```
+
+After `git lfs pull`, `example/data/avp1.pkl` should be a real data file rather than a small text pointer. You can check it with:
+
+```bash
+ls -lh example/data/avp1.pkl
+```
+
+### OmniHand Quick Start
+
+From a fresh checkout, this is the shortest path to validate OmniHand and run the included MuJoCo replay:
+
+```bash
+git clone --recurse-submodules https://github.com/wuji-technology/wuji-retargeting.git
+cd wuji-retargeting
+git lfs install
+git lfs pull
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+
+python example/validate_omnihand_setup.py
+cd example
+python teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right
 ```
 
 ### Running
@@ -67,11 +126,58 @@ python teleop_sim.py --play data/avp1.pkl --hand left
 python teleop_sim.py --play data/avp1.pkl --hand right --config config/vector/vector_avp.yaml
 
 # OmniHand MuJoCo visualization
-mjpython teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right
+python teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right
 
 # Real hardware
 python teleop_real.py --play data/avp1.pkl --hand right
 ```
+
+### OmniHand Simulation and Hardware
+
+If you already have the repo checked out, refresh the required assets and install the package in your local virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+git submodule update --init --recursive
+git lfs install
+git lfs pull
+pip install -r requirements.txt
+pip install -e .
+```
+
+Validate the OmniHand configs, kinematics, Jacobians, and one replay frame:
+
+```bash
+python example/validate_omnihand_setup.py
+```
+
+Run the MuJoCo visualization test with the included replay data:
+
+```bash
+cd example
+python teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right
+```
+
+The MuJoCo viewer writes the retargeted OmniHand pose directly to `data.qpos` for visual inspection. To preview the slower hardware-style velocity limiting and smoothing used before sending commands to the real hand, add `--safe-motion`:
+
+```bash
+python teleop_omnihand_mujoco.py --play data/avp1.pkl --hand right --safe-motion
+```
+
+Before connecting hardware, run the dry-run path and inspect the printed `q_active` values:
+
+```bash
+python teleop_omnihand.py --play data/avp1.pkl --hand right --frames 300
+```
+
+For real OmniHand hardware, install the vendor-provided `omnihand_2025` Python package in the same virtual environment, connect the hand, confirm the `--device-id`, and run:
+
+```bash
+python teleop_omnihand.py --hardware --play data/avp1.pkl --hand right --device-id 1 --frames 0
+```
+
+`teleop_omnihand.py` reads the current active joint angles when hardware mode starts, then applies joint clipping, velocity limiting, and low-pass smoothing before calling `set_all_active_joint_angles()`.
 
 ### Video / RealSense / ZED Input
 
