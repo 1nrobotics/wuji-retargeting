@@ -191,10 +191,21 @@ class BaseOptimizer(ABC):
         self.huber_delta = retarget_config.get('huber_delta', 2.0)
         self.norm_delta = retarget_config.get('norm_delta', 0.04)
 
-        # Load URDF
-        urdf_path = str((_PACKAGE_ROOT / f"wuji_hand_description/urdf/{self.hand_side}.urdf").resolve())
-        self.robot = RobotWrapper(urdf_path, hand_side=self.hand_side)
-        self.num_joints = self.robot.model.nq
+        # Load robot model. Default remains Wuji Hand for backwards compatibility.
+        robot_config = config.get('robot', {})
+        self.robot_type = robot_config.get('type', 'WujiHand')
+        if self.robot_type == 'OmniHand':
+            from ..robot_omnihand import OmniHandRobotWrapper
+
+            urdf_path = robot_config.get('urdf_path')
+            if urdf_path is not None:
+                urdf_path = str(Path(urdf_path).expanduser().resolve())
+            self.robot = OmniHandRobotWrapper(urdf_path, hand_side=self.hand_side)
+            self.num_joints = self.robot.num_opt_joints
+        else:
+            urdf_path = str((_PACKAGE_ROOT / f"wuji_hand_description/urdf/{self.hand_side}.urdf").resolve())
+            self.robot = RobotWrapper(urdf_path, hand_side=self.hand_side)
+            self.num_joints = self.robot.model.nq
 
         # Setup NLopt optimizer
         self.opt = nlopt.opt(nlopt.LD_SLSQP, self.num_joints)
@@ -203,14 +214,26 @@ class BaseOptimizer(ABC):
         self.opt.set_lower_bounds(self.robot.joint_limits[:, 0].tolist())
         self.opt.set_upper_bounds(self.robot.joint_limits[:, 1].tolist())
 
-        # Link names
-        self.origin_link_name = "palm_link"
-        self.task_link_names = [f"finger{i}_tip_link" for i in range(1, 6)]
-        self.link3_names = [f"finger{i}_link3" for i in range(1, 6)]
-        self.link4_names = [f"finger{i}_link4" for i in range(1, 6)]
+        # Link names. VectorOptimizer can supply fully custom key vectors, so
+        # non-Wuji robots do not need the legacy default link set at init time.
+        self.origin_link_name = robot_config.get("origin_link", "palm_link")
+        self.task_link_names = robot_config.get(
+            "task_link_names",
+            [f"finger{i}_tip_link" for i in range(1, 6)],
+        )
+        self.link3_names = robot_config.get(
+            "link3_names",
+            [f"finger{i}_link3" for i in range(1, 6)],
+        )
+        self.link4_names = robot_config.get(
+            "link4_names",
+            [f"finger{i}_link4" for i in range(1, 6)],
+        )
 
-        # Build link indices
-        self._build_link_indices()
+        # Build default link indices for optimizers that need them.
+        opt_type = opt_config.get('type', 'AdaptiveOptimizerAnalytical')
+        if self.robot_type != 'OmniHand' or opt_type != 'VectorOptimizer':
+            self._build_link_indices()
 
         # Store last solution for warm start
         self.last_qpos = None
